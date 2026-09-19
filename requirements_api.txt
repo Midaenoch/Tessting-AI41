@@ -1,0 +1,8 @@
+fastapi==0.141.1
+uvicorn[standard]==0.30.6
+pandas
+numpy
+scikit-learn==1.8.0
+joblib
+pydantic>=2
+shap
