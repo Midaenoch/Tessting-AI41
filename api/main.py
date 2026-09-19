@@ -113,6 +113,22 @@ def health():
     }
 
 
+@app.get("/")
+def root():
+    """Landing response for anyone hitting the bare domain — points them
+    somewhere useful instead of a bare 404."""
+    return {
+        "service": "AI4Lassa API",
+        "status": "ok" if "rf" in _artifacts else "model not loaded — see /health",
+        "docs": "/docs",
+        "endpoints": {
+            "GET /health": "service + model status",
+            "GET /forecast/latest": "forecast using the most recent month in the dataset",
+            "POST /forecast/predict": "forecast from a caller-supplied feature vector",
+        },
+    }
+
+
 @app.get("/forecast/latest", response_model=ForecastResponse, tags=["forecast"])
 def forecast_latest(decision_threshold: float = 0.5):
     """
