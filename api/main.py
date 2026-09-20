@@ -1,11 +1,11 @@
 """
-AI4Lassa API — serves the national early-warning forecast model as JSON
+AI4Lassa API serves the national early-warning forecast model as JSON
 endpoints for integration into other applications/services.
 
 Run locally:
     uvicorn api.main:app --reload --port 8000
 
-Docs (auto-generated):
+Docs ():
     http://localhost:8000/docs
 """
 import os
@@ -115,7 +115,7 @@ def health():
 
 @app.get("/")
 def root():
-    """Landing response for anyone hitting the bare domain — points them
+    """Landing response for anyone hitting the bare domain points them
     somewhere useful instead of a bare 404."""
     return {
         "service": "AI4Lassa API",
