@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import ForecastResponse, ForecastFeatures
+from api import dashboard
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -37,6 +38,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(dashboard.router)
 
 FORECAST_FEATURES = [
     "case_count", "case_count_lag1", "case_count_lag2", "case_count_lag3",
@@ -89,6 +92,13 @@ def load_artifacts():
         )
 
 
+@app.on_event("startup")
+def load_dashboard_data():
+    """Loads the dashboard source data (line-list + LGA placeholder) once
+    at process startup. See api/dashboard.py for details."""
+    dashboard.load_data(BASE_DIR)
+
+
 def _run_forecast(row: pd.Series, threshold: float):
     from src.explain import explain_forecast_plain, explain_risk_flag_plain
 
@@ -125,6 +135,11 @@ def root():
             "GET /health": "service + model status",
             "GET /forecast/latest": "forecast using the most recent month in the dataset",
             "POST /forecast/predict": "forecast from a caller-supplied feature vector",
+            "GET /api/v1/kpi": "dashboard KPI cards",
+            "GET /api/v1/trends/yearly": "yearly confirmed-case trend",
+            "GET /api/v1/trends/weekly": "weekly confirmed-case trend (derived from year+month)",
+            "GET /api/v1/demographics": "age/gender breakdown",
+            "GET /api/v1/lga-breakdown": "per-LGA case table (placeholder data — see docs)",
         },
     }
 
