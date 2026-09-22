@@ -401,3 +401,72 @@ def get_lga_breakdown(
         "total_matching_lgas": len(rows),
         "data_source": "PLACEHOLDER synthetic data — see api/dashboard.py load_data()",
     }
+
+
+
+
+# Add this to the bottom of api/dashboard.py
+
+@router.get("/recent-alerts")
+def get_recent_alerts(limit: int = Query(3, ge=1, le=10)):
+    """
+    Powers the 'Recent Alerts' section on the Live Alerts page.
+    Returns the most recent confirmed cases from the placeholder LGA dataset.
+    """
+    _require_data()
+    lga_df = _data["lga"]
+    
+    # Filter for confirmed cases only
+    confirmed = lga_df[lga_df["Case_Status"] == "Confirmed"].copy()
+    
+    if confirmed.empty:
+        return []
+        
+    # Ensure Last_Update is datetime
+    confirmed["Last_Update"] = pd.to_datetime(confirmed["Last_Update"])
+    
+    # Sort by most recent update
+    recent = confirmed.sort_values("Last_Update", ascending=False)
+    
+    # Group by LGA and State to get unique locations, then take top N
+    # We aggregate to get the latest status per LGA
+    grouped = recent.groupby(["LGA", "State"]).agg({
+        "Case_Status": "count", # Count of cases in that LGA
+        "Outcome": lambda x: (x == "Deceased").sum(), # Count deaths
+        "Last_Update": "max"
+    }).reset_index()
+    
+    # Sort again by date after grouping and take top N
+    grouped = grouped.sort_values("Last_Update", ascending=False).head(limit)
+    
+    results = []
+    for _, row in grouped.iterrows():
+        cases = int(row["Case_Status"])
+        deaths = int(row["Outcome"])
+        
+        # Determine Risk Level based on case count (logic from UI)
+        if cases > 50:
+            risk_level = "High"
+            risk_color = "text-lassa-red"
+            advice = "Avoid affected zones. Practice hygiene."
+        elif cases > 20:
+            risk_level = "Moderate"
+            risk_color = "text-orange-600"
+            advice = "Monitor symptoms. Avoid contact with rodents."
+        else:
+            risk_level = "Low"
+            risk_color = "text-green-600"
+            advice = "No active threat. Stay informed."
+            
+        results.append({
+            "lga": row["LGA"],
+            "state": row["State"],
+            "reported_date": row["Last_Update"].strftime("%Y-%m-%d"),
+            "risk_level": risk_level,
+            "risk_color": risk_color,
+            "advice": advice,
+            "cases": cases,
+            "deaths": deaths
+        })
+        
+    return results
