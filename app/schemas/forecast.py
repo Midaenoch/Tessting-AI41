@@ -1,10 +1,6 @@
-from typing import Optional, List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
-
-# ---------------------------------------------------------------------------
-# National early-warning forecast
-# ---------------------------------------------------------------------------
 class ForecastResponse(BaseModel):
     based_on_month: str
     forecast_next_month_cases: int
@@ -14,11 +10,8 @@ class ForecastResponse(BaseModel):
     top_contributing_factors: List[str]
     note: str
 
-
 class ForecastFeatures(BaseModel):
-    """Explicit feature vector, for callers who already compute lags/rolling
-    stats themselves (e.g. a separate pipeline maintaining the monthly series)."""
-    case_count: float = Field(..., description="Current month's case count")
+    case_count: float
     case_count_lag1: float
     case_count_lag2: float
     case_count_lag3: float
@@ -32,6 +25,4 @@ class ForecastFeatures(BaseModel):
     month_sin: float
     month_cos: float
     year: int
-    decision_threshold: Optional[float] = Field(
-        0.5, ge=0, le=1, description="Probability cutoff for HIGH risk classification"
-    )
+    decision_threshold: Optional[float] = Field(0.5, ge=0, le=1)
