@@ -1,0 +1,4 @@
+Feature set,n_features,MAE,R2
+A: Autoregressive only (lags + rolling stats),10,73.5150281192406,0.2628113306903842
+"B: A + seasonality (month_sin/cos, year)",13,56.262891756116495,0.6634254377251327
+C: B + lab positivity rate (full feature set),14,57.71093939986855,0.6456458373860485
