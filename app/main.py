@@ -15,7 +15,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.schemas.forecast import ForecastResponse, ForecastFeatures|
+from app.schemas.forecast import ForecastResponse, ForecastFeatures
 from app.routers import auth, admin, alerts, dashboard, forecast
 
 app.include_router(auth.router)
