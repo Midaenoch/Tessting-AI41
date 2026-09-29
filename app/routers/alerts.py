@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from pymongo.errors import PyMongoError
 
 from app.database import get_db
 from app.services import dashboard_service
@@ -24,6 +25,9 @@ async def recent(limit: int = Query(3, ge=1, le=50)):
         return await dashboard_service.get_recent_alerts(limit)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except PyMongoError as e:
+        print(f"[db] WARNING: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable. Please try again shortly.")
 
 
 @router.post("")
@@ -48,5 +52,9 @@ async def create_alert(payload: AlertIn):
         "cases": payload.cases,
         "deaths": payload.deaths,
     }
-    result = await db.alerts.insert_one(doc)
+    try:
+        result = await db.alerts.insert_one(doc)
+    except PyMongoError as e:
+        print(f"[db] WARNING: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable. Please try again shortly.")
     return {"id": str(result.inserted_id), "status": "created"}
