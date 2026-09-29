@@ -4,18 +4,22 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from pymongo.errors import PyMongoError
 
 from app.auth.deps import require_roles
 from app.database import get_db
-from app.services import forecast_service
+from app.services import forecast_service, patient_service
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 LINE_LIST_REQUIRED = ["YEAR", "MONTH"]
 LGA_REQUIRED = ["LGA", "State", "Case_Status", "Outcome"]
@@ -126,7 +130,7 @@ def _line_list_row(df: pd.DataFrame, idx: int) -> dict:
         "sex": "SEX", "result": "RESULTS", "condition": "CONDITION",
         "state": "State", "lga": "LGA",
     })
-    return {
+    doc = {
         "year": _to_int(r["year"]),
         "month": r["month"] if not pd.isna(r["month"]) else None,
         "age": _to_float(r["age"]),
@@ -138,6 +142,13 @@ def _line_list_row(df: pd.DataFrame, idx: int) -> dict:
         "source": "upload",
         "uploaded_at": datetime.utcnow(),
     }
+    # Presenting-symptom columns (optional — only present if the uploaded
+    # file has them; needed for app.services.patient_service.retrain()).
+    symptom_mapping = {feat: raw_col for raw_col, feat in patient_service.SYMPTOM_COLUMNS.items()}
+    symptom_r = _row_from(df, idx, symptom_mapping)
+    for feat, val in symptom_r.items():
+        doc[feat] = patient_service._clean_yes_no(val) if val is not None and not pd.isna(val) else 0
+    return doc
 
 
 def _lga_synthetic_row(df: pd.DataFrame, idx: int) -> dict:
@@ -211,15 +222,25 @@ async def upload_dataset(
         inserted += len(res.inserted_ids)
 
     retrain_report: dict[str, Any] = {"attempted": False, "success": False}
+    patient_retrain_report: dict[str, Any] = {"attempted": False, "success": False}
     if retrain_model and upload_type == "outbreak_data":
         retrain_report["attempted"] = True
         try:
-            result = await forecast_service.retrain(db)
+            result = await forecast_service.retrain(db, triggered_by=_user)
             retrain_report["success"] = True
             retrain_report["metrics"] = result
         except Exception as e:
             retrain_report["success"] = False
             retrain_report["error"] = str(e)
+
+        patient_retrain_report["attempted"] = True
+        try:
+            p_result = await patient_service.retrain(db, triggered_by=_user)
+            patient_retrain_report["success"] = True
+            patient_retrain_report["metrics"] = p_result
+        except Exception as e:
+            patient_retrain_report["success"] = False
+            patient_retrain_report["error"] = str(e)
 
     return {
         "status": "ok",
@@ -231,6 +252,7 @@ async def upload_dataset(
         "replaced_existing": replace_existing,
         "deleted_count": deleted_count,
         "retrain": retrain_report,
+        "patient_retrain": patient_retrain_report,
         "uploaded_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -246,6 +268,15 @@ async def export_dataset(
     db = get_db()
     if db is None:
         raise HTTPException(503, "Database not connected")
+    try:
+        # Cheap upfront check: once the StreamingResponse below starts, HTTP
+        # headers are already sent and the status code can no longer change,
+        # so a Mongo failure would otherwise look like a silently truncated
+        # download instead of a clean error.
+        await db.command("ping")
+    except PyMongoError as e:
+        print(f"[db] WARNING: {e}")
+        raise HTTPException(503, "Database temporarily unavailable. Please try again shortly.")
 
     if kind == "public_reports":
         pipeline = [
@@ -322,3 +353,97 @@ async def export_dataset(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /model-versions  — list archived model generations
+# ---------------------------------------------------------------------------
+@router.get("/model-versions")
+async def list_model_versions(
+    _user: dict = Depends(require_roles("admin", "health_officer")),
+):
+    versions = forecast_service.list_archived_versions(BASE_DIR)
+    return {
+        "current_config": forecast_service.get_config_summary(),
+        "archived_versions": versions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /model-history  — audit log of retrain/rollback events
+# ---------------------------------------------------------------------------
+@router.get("/model-history")
+async def model_history(
+    limit: int = 50,
+    _user: dict = Depends(require_roles("admin", "health_officer")),
+):
+    db = get_db()
+    events = await forecast_service.get_model_history(db, limit=limit)
+    return {"events": events}
+
+
+# ---------------------------------------------------------------------------
+# POST /rollback  — restore an archived model generation as the live one
+# ---------------------------------------------------------------------------
+@router.post("/rollback")
+async def rollback_model(
+    version: str | None = Form(None),
+    _user: dict = Depends(require_roles("admin")),
+):
+    """Roll back to a previous model generation.
+
+    Body form field `version` is optional — omit it to roll back to the most
+    recently archived generation (i.e. undo the last retrain/promotion).
+    """
+    db = get_db()
+    try:
+        result = await forecast_service.rollback_to_version(
+            BASE_DIR, version, db=db, triggered_by=_user
+        )
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "status": "ok",
+        "rolled_back_to": result["rolled_back_to"],
+        "available_versions": result["available_versions"],
+        "rolled_back_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /patient/model-versions  — list archived PATIENT model generations
+# ---------------------------------------------------------------------------
+@router.get("/patient/model-versions")
+async def list_patient_model_versions(
+    _user: dict = Depends(require_roles("admin", "health_officer")),
+):
+    versions = patient_service.list_archived_versions(BASE_DIR)
+    return {
+        "current_config": patient_service.get_config_summary(),
+        "archived_versions": versions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /patient/rollback  — restore an archived PATIENT model generation
+# ---------------------------------------------------------------------------
+@router.post("/patient/rollback")
+async def rollback_patient_model(
+    version: str | None = Form(None),
+    _user: dict = Depends(require_roles("admin")),
+):
+    db = get_db()
+    try:
+        result = await patient_service.rollback_to_version(
+            BASE_DIR, version, db=db, triggered_by=_user
+        )
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "status": "ok",
+        "rolled_back_to": result["rolled_back_to"],
+        "available_versions": result["available_versions"],
+        "rolled_back_at": datetime.utcnow().isoformat() + "Z",
+    }
