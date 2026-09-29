@@ -12,7 +12,7 @@ if BASE_DIR not in sys.path:
 from app.config import settings
 from app.database import connect_db, close_db
 from app.services import forecast_service, patient_service
-from app.routers import auth, forecast, dashboard, alerts, admin, patient
+from app.routers import auth, forecast, dashboard, alerts, admin, patient_router
 
 
 @asynccontextmanager
