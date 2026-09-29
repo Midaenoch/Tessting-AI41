@@ -24,6 +24,8 @@ async def connect_db():
         await db.cases.create_index([("result", 1)])
         await db.lga_synthetic.create_index([("state", 1), ("lga", 1)])
         await db.lga_synthetic.create_index([("case_status", 1)])
+        await db.model_events.create_index([("timestamp", -1)])
+        await db.model_events.create_index([("event_type", 1)])
         print(f"[db] Connected to MongoDB: {settings.MONGO_DB}")
     except Exception as e:
         print(f"[db] WARNING: MongoDB connection failed: {e}")
