@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.database import get_db
+from app.services import outbreak_service
 
 
 _MONTH_NAME_TO_NUM = {
@@ -123,13 +124,20 @@ async def get_kpi() -> dict:
         {**cf, "condition": {"$regex": r"^\s*alive", "$options": "i"}}
     )
 
-    pipeline_outbreaks = [
-        {"$match": {**cf, "year": {"$ne": None}, "month": {"$ne": None}}},
-        {"$group": {"_id": {"year": "$year", "month": "$month"}}},
-        {"$count": "total"},
-    ]
-    outbreaks_res = await cases.aggregate(pipeline_outbreaks).to_list(length=1)
-    total_outbreaks = outbreaks_res[0]["total"] if outbreaks_res else 0
+    try:
+        total_outbreaks = outbreak_service.count_declared_outbreak_months()
+        outbreaks_source = "app.services.outbreak_service (real, seasonal mean+1.5SD threshold)"
+    except RuntimeError:
+        # Monthly model data not loaded yet (e.g. very first startup) — fall
+        # back to the old proxy rather than failing the whole KPI card.
+        pipeline_outbreaks = [
+            {"$match": {**cf, "year": {"$ne": None}, "month": {"$ne": None}}},
+            {"$group": {"_id": {"year": "$year", "month": "$month"}}},
+            {"$count": "total"},
+        ]
+        outbreaks_res = await cases.aggregate(pipeline_outbreaks).to_list(length=1)
+        total_outbreaks = outbreaks_res[0]["total"] if outbreaks_res else 0
+        outbreaks_source = "mongodb.cases (FALLBACK: any month with >=1 confirmed case — outbreak_service unavailable)"
 
     years = await cases.distinct("year", {"year": {"$ne": None}})
     total_records = await cases.count_documents({})
@@ -159,7 +167,7 @@ async def get_kpi() -> dict:
             "confirmed_cases": "mongodb.cases (real)",
             "recoveries": "mongodb.cases (real)",
             "deaths": "mongodb.cases (real)",
-            "total_outbreaks": "mongodb.cases (real, derived)",
+            "total_outbreaks": outbreaks_source,
             "states_affected": "mongodb.lga_synthetic (PLACEHOLDER)",
             "lgas_affected": "mongodb.lga_synthetic (PLACEHOLDER)",
         },
