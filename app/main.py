@@ -52,7 +52,7 @@ app.include_router(forecast.router)
 app.include_router(dashboard.router)
 app.include_router(alerts.router)
 app.include_router(admin.router)
-app.include_router(patient.router)
+app.include_router(patient_router.router)
 
 
 @app.get("/health")
