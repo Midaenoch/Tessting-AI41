@@ -15,7 +15,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.schemas import ForecastResponse, ForecastFeatures
+from app.schemas.forecast import ForecastResponse, ForecastFeatures
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
