@@ -138,6 +138,68 @@ def _run(row: pd.Series, threshold: float):
     )
 
 
+def get_monthly_df() -> Optional[pd.DataFrame]:
+    """
+    Public accessor for the monthly case-count dataframe, consumed by
+    outbreak_service. Returns a copy with a normalized schema:
+        year (int), calendar_month (int 1..12), case_count (float),
+        month (str "YYYY-MM"), month_ts (datetime)
+    Returns None if artifacts aren't loaded.
+    """
+    df = _artifacts.get("monthly_df")
+    if df is None:
+        return None
+
+    out = df.copy()
+
+    # --- Resolve calendar_month from whatever column exists ---
+    if "calendar_month" in out.columns:
+        pass  # already good
+    elif "month_num" in out.columns:
+        out["calendar_month"] = out["month_num"]
+    elif "month_ts" in out.columns:
+        out["calendar_month"] = pd.to_datetime(out["month_ts"]).dt.month
+    elif "month" in out.columns:
+        # month is "YYYY-MM"
+        out["calendar_month"] = pd.to_datetime(out["month"]).dt.month
+    else:
+        raise RuntimeError(
+            "monthly_df has no calendar-month column "
+            f"(columns: {list(out.columns)})"
+        )
+
+    # --- Resolve year ---
+    if "year" not in out.columns:
+        if "month_ts" in out.columns:
+            out["year"] = pd.to_datetime(out["month_ts"]).dt.year
+        elif "month" in out.columns:
+            out["year"] = pd.to_datetime(out["month"]).dt.year
+        else:
+            raise RuntimeError("monthly_df has no year column")
+
+    # --- Resolve case_count ---
+    if "case_count" not in out.columns:
+        raise RuntimeError("monthly_df has no case_count column")
+
+    # --- Resolve month label ---
+    if "month" not in out.columns:
+        out["month"] = (
+            pd.to_datetime(out["month_ts"]).dt.strftime("%Y-%m")
+            if "month_ts" in out.columns
+            else out["year"].astype(str) + "-" + out["calendar_month"].astype(str).str.zfill(2)
+        )
+
+    cols = ["year", "calendar_month", "case_count", "month"]
+    if "month_ts" in out.columns:
+        cols.append("month_ts")
+
+    out = out[cols].copy()
+    out["year"] = out["year"].astype(int)
+    out["calendar_month"] = out["calendar_month"].astype(int)
+    out["case_count"] = out["case_count"].astype(float)
+
+    return out.sort_values(["year", "calendar_month"]).reset_index(drop=True)
+    
 def predict_latest(threshold: float = 0.5) -> dict:
     if not is_loaded():
         raise RuntimeError(get_error() or "Model not loaded")

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pymongo.errors import PyMongoError
 
 from app.database import get_db
-from app.services import dashboard_service
+from app.services import dashboard_service, map_service
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -23,6 +23,18 @@ class AlertIn(BaseModel):
 async def recent(limit: int = Query(3, ge=1, le=50)):
     try:
         return await dashboard_service.get_recent_alerts(limit)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except PyMongoError as e:
+        print(f"[db] WARNING: {e}")
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable. Please try again shortly.")
+
+
+@router.get("/by-state")
+async def by_state():
+    """Per-state alert status for the homepage map, keyed by lowercase state name."""
+    try:
+        return await map_service.get_state_alerts()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except PyMongoError as e:

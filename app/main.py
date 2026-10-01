@@ -36,7 +36,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+
+def _normalise_origin(origin: str) -> str:
+    """Browsers send origins with a scheme and no trailing slash, so
+    'https://site.com/' or 'site.com' would never match. Fix both."""
+    o = origin.strip().rstrip("/")
+    if o and "://" not in o:
+        o = f"https://{o}"
+    return o
+
+
+origins = [
+    n for n in (_normalise_origin(o) for o in settings.CORS_ORIGINS.split(",")) if n
+]
 print(f"[startup] CORS allow_origins = {origins}")
 
 app.add_middleware(
@@ -100,6 +112,7 @@ async def root():
             "GET  /api/v1/demographics",
             "GET  /api/v1/lga-breakdown",
             "GET  /alerts/recent",
+            "GET  /alerts/by-state",
             "POST /alerts",
             "POST /api/v1/admin/upload",
             "GET  /api/v1/admin/export/{kind}",
